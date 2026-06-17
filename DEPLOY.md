@@ -51,12 +51,17 @@ Keep the app in **Testing** mode and add your team's Gmail addresses under **Tes
 4. Click **Refresh** on Discovery to load jobs, and enable **Automatic updates** in Settings.
 
 ## 6. Cron frequency note
-`vercel.json` runs the cron **hourly**; the route only ingests when your Settings interval is due.
-- **Vercel Pro** is required for sub-daily crons (honors 2h/5h/8h).
-- On **Hobby**, cron runs at most **once/day** — for finer intervals, point a free external pinger (e.g. cron-job.org) at:
+`vercel.json` runs the cron **once a day** (`0 6 * * *`) — this deploys on the free **Hobby** plan.
+The route only ingests when your Settings interval is due, so on Hobby auto-refresh effectively runs **at most once/day**.
+
+To get the finer intervals (2h / 5h / 8h) you have two options:
+- **Vercel Pro** — then change the schedule to `0 * * * *` (hourly) and any interval is honored.
+- **Free external pinger** (e.g. cron-job.org, GitHub Actions) hitting the endpoint as often as you like — works on Hobby:
   ```
   GET https://<your-app>.vercel.app/api/cron/ingest   Header: Authorization: Bearer <CRON_SECRET>
   ```
+
+The manual **Refresh** button on Discovery works on any plan, anytime.
 
 ## 7. Function duration
 The discovery ingest takes ~15–20s. Vercel **Hobby caps functions at 60s**, **Pro at 300s** (`maxDuration` is set to 300). If the ingest grows, prefer Pro.
