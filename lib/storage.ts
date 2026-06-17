@@ -4,7 +4,8 @@ import { put, del } from "@vercel/blob"
 
 // On Vercel (serverless) the filesystem is ephemeral, so files go to Vercel Blob.
 // Locally (no BLOB token) we fall back to disk under ./storage so dev needs no setup.
-const hasBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN)
+// Use Blob when a token is set OR when a Blob store is connected via OIDC (BLOB_STORE_ID).
+const hasBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID)
 const onServerless = Boolean(process.env.VERCEL)
 const ROOT = path.join(process.cwd(), "storage", "attachments")
 
