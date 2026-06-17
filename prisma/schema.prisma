@@ -1,0 +1,357 @@
+// Startup Hiring Intelligence Portal — data model
+// Core chain: Company -> Application -> Conversation -> Messages
+// Dedup rule: one Application per (company, user).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Pooled connection (Neon -pooler host) used by the app at runtime.
+  url       = env("DATABASE_URL")
+  // Direct connection (non-pooled) used by prisma migrate / introspection.
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------- Enums ----------
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum ApplicationStatus {
+  DRAFT
+  APPLIED
+  RESPONDED
+  INTERVIEWING
+  OFFER
+  REJECTED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum ConversationStatus {
+  OPEN
+  ARCHIVED
+}
+
+// ---------- Auth / Users ----------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  role         Role     @default(MEMBER)
+  disabled     Boolean  @default(false)
+  bio          String? // user-editable profile bio
+  avatarUrl    String? // profile picture (Blob URL or local path)
+  groqApiKey   String? // encrypted Groq API key for AI bid generation
+  bidProfile   String? // optional background used to personalize AI bids
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  applications   Application[]
+  sentMessages   Message[]      @relation("MessageSender")
+  auditLogs      AuditLog[]     @relation("AuditActor")
+  emailTemplates EmailTemplate[] @relation("TemplateAuthor")
+  googleAccount  GoogleAccount?
+  performanceEntries PerformanceEntry[] @relation("PerfUser")
+
+  @@map("users")
+}
+
+// A single performance/score adjustment for a team member (unit: $).
+model PerformanceEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  amount      Int // signed: positive or negative
+  period      String // performance month, "YYYY-MM"
+  note        String?
+  createdById String? // admin who recorded it
+  createdAt   DateTime @default(now())
+
+  user User @relation("PerfUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([period])
+  @@index([userId, period])
+  @@map("performance_entries")
+}
+
+// Connected Gmail account (OAuth) for sending/receiving email as the user.
+model GoogleAccount {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  email        String // connected gmail address
+  accessToken  String // encrypted
+  refreshToken String // encrypted
+  expiryDate   DateTime
+  scope        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("google_accounts")
+}
+
+// ---------- Discovery: Companies, Contacts, Signals, Lead Scores ----------
+
+model Company {
+  id           String   @id @default(cuid())
+  // Stable dedupe key derived from the company name (lowercased, slugified).
+  slug         String   @unique
+  name         String
+  domain       String?
+  website      String?
+  careersUrl   String?
+  description  String?
+  industry     String?
+  location     String?
+  size         String?
+  // Date the company was surfaced by discovery — drives the date-based Discovery view.
+  discoveredAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  contacts      Contact[]
+  signals       Signal[]
+  leadScore     LeadScore?
+  jobPostings   JobPosting[]
+  applications  Application[]
+  conversations Conversation[]
+
+  @@index([discoveredAt])
+  @@map("companies")
+}
+
+// A real, ingested job opening — the core unit of discovery.
+model JobPosting {
+  id             String   @id @default(cuid())
+  companyId      String
+  title          String // role / position the company wants
+  description    String?
+  stack          String[] // tech tags
+  employmentType String?
+  remote         Boolean  @default(true)
+  location       String?
+  salaryText     String? // raw salary string from the source
+  salaryMin      Int?
+  salaryMax      Int?
+  currency       String?
+  url            String? // canonical posting URL
+  applyUrl       String?
+  contactEmail   String? // cold-mail address when the source provides one
+  source         String // "hn_whoishiring" | "remoteok" | "remotive" | "greenhouse" | "lever"
+  sourceId       String // stable id from the source, for dedupe
+  dedupeKey      String? // company + normalized role, to collapse cross-source/month duplicates
+  postedAt       DateTime @default(now())
+  discoveredAt   DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  applications Application[]
+
+  @@unique([source, sourceId])
+  @@index([companyId])
+  @@index([discoveredAt])
+  @@index([postedAt])
+  @@index([contactEmail])
+  @@index([dedupeKey])
+  @@map("job_postings")
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  title     String?
+  email     String?
+  phone     String?
+  linkedin  String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("contacts")
+}
+
+model Signal {
+  id         String   @id @default(cuid())
+  companyId  String
+  type       String // e.g. "hiring", "funding", "headcount_growth", "tech_change"
+  title      String
+  detail     String?
+  source     String?
+  url        String?
+  observedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([type])
+  @@map("signals")
+}
+
+model LeadScore {
+  id        String   @id @default(cuid())
+  companyId String   @unique
+  score     Int      @default(0)
+  breakdown Json?
+  computedAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("lead_scores")
+}
+
+// ---------- Applications / Outreach ----------
+
+model Application {
+  id           String            @id @default(cuid())
+  companyId    String
+  userId       String
+  jobPostingId String? // the specific posting applied to, when known
+  status       ApplicationStatus @default(APPLIED)
+  channel      String? // e.g. "email", "linkedin", "form"
+  role         String? // role/position applied for
+  notes        String?
+  appliedAt    DateTime          @default(now())
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobPosting    JobPosting?    @relation(fields: [jobPostingId], references: [id], onDelete: SetNull)
+  conversations Conversation[]
+
+  // Dedup: one outreach attempt per company per user.
+  @@unique([companyId, userId])
+  @@index([userId])
+  @@index([companyId])
+  @@map("applications")
+}
+
+// ---------- Inbox: Conversations + Messages ----------
+
+model Conversation {
+  id            String             @id @default(cuid())
+  applicationId String
+  companyId     String // denormalized for inbox listing/queries
+  subject       String?
+  contactEmail  String? // the company address this thread corresponds with
+  gmailThreadId String? // Gmail thread id, for reply sync
+  status        ConversationStatus @default(OPEN)
+  lastMessageAt DateTime           @default(now())
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  messages    Message[]
+
+  @@index([companyId])
+  @@index([applicationId])
+  @@index([lastMessageAt])
+  @@index([gmailThreadId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  conversationId String
+  direction      MessageDirection
+  subject        String?
+  body           String
+  // For OUTBOUND: the team member who sent it. INBOUND messages have no senderUser.
+  senderUserId   String?
+  fromAddress    String?
+  toAddress      String?
+  externalId     String?          @unique // Gmail message id
+  messageIdHeader String?         // RFC 2822 Message-ID header
+  readAt         DateTime?
+  sentAt         DateTime         @default(now())
+  createdAt      DateTime         @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser   User?        @relation("MessageSender", fields: [senderUserId], references: [id], onDelete: SetNull)
+  attachments  Attachment[]
+
+  @@index([conversationId])
+  @@index([sentAt])
+  @@map("messages")
+}
+
+// File attachment stored on local disk, linked to a sent/received message.
+model Attachment {
+  id          String   @id @default(cuid())
+  messageId   String?
+  filename    String
+  mimeType    String
+  size        Int
+  storagePath String // path on local disk
+  createdAt   DateTime @default(now())
+
+  message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("attachments")
+}
+
+// ---------- Admin: Audit Logs + Email Templates ----------
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  action      String // e.g. "user.login", "application.create", "user.disable"
+  entityType  String? // e.g. "User", "Application"
+  entityId    String?
+  metadata    Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// Singleton config for the automatic discovery refresh scheduler.
+model IngestSchedule {
+  id            String    @id @default("singleton")
+  enabled       Boolean   @default(false)
+  intervalHours Int       @default(8)
+  lastRunAt     DateTime?
+  nextRunAt     DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  @@map("ingest_schedule")
+}
+
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  subject     String
+  body        String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User? @relation("TemplateAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@map("email_templates")
+}
