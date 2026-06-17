@@ -29,7 +29,12 @@ export async function POST(request: Request) {
   }
 
   const buf = Buffer.from(await file.arrayBuffer())
-  const storagePath = await saveAttachment(`avatar-${crypto.randomUUID()}`, file.name, buf)
+  let storagePath: string
+  try {
+    storagePath = await saveAttachment(`avatar-${crypto.randomUUID()}`, file.name, buf)
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 })
+  }
 
   const prev = await prisma.user.findUnique({ where: { id: userIdToUpdate }, select: { avatarUrl: true } })
   await prisma.user.update({ where: { id: userIdToUpdate }, data: { avatarUrl: storagePath } })

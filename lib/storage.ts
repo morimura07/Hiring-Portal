@@ -2,9 +2,10 @@ import { promises as fs } from "fs"
 import path from "path"
 import { put, del } from "@vercel/blob"
 
-// On Vercel (serverless) the filesystem is ephemeral, so attachments go to Vercel Blob.
+// On Vercel (serverless) the filesystem is ephemeral, so files go to Vercel Blob.
 // Locally (no BLOB token) we fall back to disk under ./storage so dev needs no setup.
-const useBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN)
+const hasBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN)
+const onServerless = Boolean(process.env.VERCEL)
 const ROOT = path.join(process.cwd(), "storage", "attachments")
 
 function safeName(filename: string): string {
@@ -14,12 +15,18 @@ function safeName(filename: string): string {
 const isRemote = (p: string) => /^https?:\/\//.test(p)
 
 export async function saveAttachment(id: string, filename: string, data: Buffer): Promise<string> {
-  if (useBlob) {
+  if (hasBlob) {
     const blob = await put(`attachments/${id}-${safeName(filename)}`, data, {
       access: "public",
       addRandomSuffix: false,
     })
     return blob.url
+  }
+  // Never write to ephemeral serverless disk — it would store a path that breaks immediately.
+  if (onServerless) {
+    throw new Error(
+      "File storage isn't configured. Create a Vercel Blob store, connect it to this project (adds BLOB_READ_WRITE_TOKEN), and redeploy.",
+    )
   }
   await fs.mkdir(ROOT, { recursive: true })
   const filePath = path.join(ROOT, `${id}-${safeName(filename)}`)
