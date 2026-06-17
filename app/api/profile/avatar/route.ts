@@ -62,12 +62,11 @@ export async function GET(request: Request) {
 
   const target = await prisma.user.findUnique({ where: { id: u }, select: { avatarUrl: true } })
   if (!target?.avatarUrl) return new NextResponse(null, { status: 404 })
-  if (/^https?:\/\//.test(target.avatarUrl)) return NextResponse.redirect(target.avatarUrl)
 
   try {
     const buf = await readAttachment(target.avatarUrl)
-    const ext = target.avatarUrl.split(".").pop()?.toLowerCase() ?? ""
-    return new NextResponse(buf, {
+    const ext = target.avatarUrl.split("?")[0].split(".").pop()?.toLowerCase() ?? ""
+    return new NextResponse(new Uint8Array(buf), {
       headers: { "Content-Type": extMime[ext] ?? "image/jpeg", "Cache-Control": "private, max-age=60" },
     })
   } catch {
