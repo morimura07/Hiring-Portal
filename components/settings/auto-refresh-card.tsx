@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { INTERVAL_OPTIONS, INTERVAL_LABELS } from "@/lib/ingest/schedule"
+import { INTERVAL_OPTIONS, INTERVAL_LABELS } from "@/lib/ingest/schedule-constants"
 import { saveScheduleAction } from "@/app/(app)/settings/actions"
 
 const fmt = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" })
