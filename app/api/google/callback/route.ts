@@ -1,7 +1,7 @@
 import "server-only"
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/session"
-import { exchangeCode, getProfileEmail, saveGoogleAccount } from "@/lib/google/oauth"
+import { exchangeCode, getProfileEmail, saveGoogleAccount, originFromRequest } from "@/lib/google/oauth"
 import { writeAudit } from "@/lib/audit"
 
 export const dynamic = "force-dynamic"
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const tokens = await exchangeCode(code)
+    const tokens = await exchangeCode(code, originFromRequest(request))
     const email = await getProfileEmail(tokens.access_token)
     await saveGoogleAccount(user.id, tokens, email)
     await writeAudit({ actorUserId: user.id, action: "gmail.connect", entityType: "GoogleAccount", metadata: { email } })

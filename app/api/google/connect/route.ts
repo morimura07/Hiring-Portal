@@ -2,7 +2,7 @@ import "server-only"
 import crypto from "crypto"
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/session"
-import { buildAuthUrl, googleConfigured } from "@/lib/google/oauth"
+import { buildAuthUrl, googleConfigured, originFromRequest } from "@/lib/google/oauth"
 
 export const dynamic = "force-dynamic"
 
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   }
 
   const state = crypto.randomUUID()
-  const res = NextResponse.redirect(buildAuthUrl(state))
+  const res = NextResponse.redirect(buildAuthUrl(state, originFromRequest(request)))
   res.cookies.set("g_oauth_state", state, {
     httpOnly: true,
     sameSite: "lax",

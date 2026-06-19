@@ -17,16 +17,33 @@ export function googleConfigured(): boolean {
 function config() {
   const clientId = process.env.GOOGLE_CLIENT_ID
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI ?? "http://localhost:3000/api/google/callback"
   if (!clientId || !clientSecret) throw new Error("Google OAuth is not configured (set GOOGLE_CLIENT_ID/SECRET).")
-  return { clientId, clientSecret, redirectUri }
+  return { clientId, clientSecret }
 }
 
-export function buildAuthUrl(state: string): string {
-  const { clientId, redirectUri } = config()
+/** The public origin the user is on (handles Vercel's proxy headers). */
+export function originFromRequest(request: Request): string {
+  const h = request.headers
+  const proto = h.get("x-forwarded-proto") ?? "https"
+  const host = h.get("x-forwarded-host") ?? h.get("host")
+  return `${proto}://${host}`
+}
+
+/**
+ * The OAuth redirect URI. We derive it from the live request origin so it always
+ * matches the domain the user actually opened — no stale GOOGLE_REDIRECT_URI to sync.
+ * The env var is only a fallback for contexts without a request.
+ */
+export function resolveRedirectUri(origin?: string): string {
+  if (origin) return `${origin}/api/google/callback`
+  return process.env.GOOGLE_REDIRECT_URI ?? "http://localhost:3000/api/google/callback"
+}
+
+export function buildAuthUrl(state: string, origin?: string): string {
+  const { clientId } = config()
   const params = new URLSearchParams({
     client_id: clientId,
-    redirect_uri: redirectUri,
+    redirect_uri: resolveRedirectUri(origin),
     response_type: "code",
     scope: GMAIL_SCOPES.join(" "),
     access_type: "offline",
@@ -43,8 +60,8 @@ type TokenResponse = {
   scope?: string
 }
 
-export async function exchangeCode(code: string): Promise<TokenResponse> {
-  const { clientId, clientSecret, redirectUri } = config()
+export async function exchangeCode(code: string, origin?: string): Promise<TokenResponse> {
+  const { clientId, clientSecret } = config()
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -52,7 +69,7 @@ export async function exchangeCode(code: string): Promise<TokenResponse> {
       code,
       client_id: clientId,
       client_secret: clientSecret,
-      redirect_uri: redirectUri,
+      redirect_uri: resolveRedirectUri(origin),
       grant_type: "authorization_code",
     }),
   })
