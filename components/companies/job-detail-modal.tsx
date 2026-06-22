@@ -9,7 +9,10 @@ import {
   ExternalLink,
   Briefcase,
   CheckCircle2,
+  Copy,
+  Check,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -85,6 +88,19 @@ export function JobDetailModal({
   fromEmail?: string | null
 }) {
   const salary = formatSalary(job.salaryMin, job.salaryMax, job.currency, job.salaryText)
+  const [descCopied, setDescCopied] = React.useState(false)
+
+  async function copyDescription() {
+    if (!job.description) return
+    try {
+      await navigator.clipboard.writeText(job.description)
+      setDescCopied(true)
+      toast.success("Job description copied")
+      setTimeout(() => setDescCopied(false), 1500)
+    } catch {
+      toast.error("Couldn't copy")
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -153,9 +169,26 @@ export function JobDetailModal({
 
         {/* Job description (from the database) */}
         <div>
-          <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Job description
-          </h4>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Job description
+            </h4>
+            {job.description && (
+              <button
+                onClick={copyDescription}
+                className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Copy job description"
+                aria-label="Copy job description"
+              >
+                {descCopied ? (
+                  <Check className="h-3.5 w-3.5 text-emerald-500" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+                {descCopied ? "Copied" : "Copy"}
+              </button>
+            )}
+          </div>
           {job.description ? (
             <div className="rounded-lg border bg-muted/30 p-4 text-sm leading-7 text-foreground/90">
               {renderDescription(job.description)}
